@@ -1,0 +1,78 @@
+diff -up udev-147/udev/udev-node.c.pres udev-147/udev/udev-node.c
+--- udev-147/udev/udev-node.c.pres	2009-11-04 16:37:06.000000000 +0100
++++ udev-147/udev/udev-node.c	2010-08-31 16:53:07.000000000 +0200
+@@ -36,7 +36,6 @@ int udev_node_mknod(struct udev_device *
+ {
+ 	struct udev *udev = udev_device_get_udev(dev);
+ 	struct stat stats;
+-	int preserve = 0;
+ 	int err = 0;
+ 
+ 	if (major(devnum) == 0)
+@@ -53,8 +52,19 @@ int udev_node_mknod(struct udev_device *
+ 	if (lstat(file, &stats) == 0) {
+ 		if (((stats.st_mode & S_IFMT) == (mode & S_IFMT)) && (stats.st_rdev == devnum)) {
+ 			info(udev, "preserve file '%s', because it has correct dev_t\n", file);
+-			preserve = 1;
+-			udev_selinux_lsetfilecon(udev, file, mode);
++			if (stats.st_mode != mode || stats.st_uid != uid || stats.st_gid != gid) {
++				info(udev, "set permissions %s, %#o, uid=%u, gid=%u\n", file, mode, uid, gid);
++				chmod(file, mode);
++				chown(file, uid, gid);
++			} else {
++				info(udev, "preserve permissions %s, %#o, uid=%u, gid=%u\n", file, mode, uid, gid);
++			}
++			/* set selinux file context on add events */
++			if (strcmp(udev_device_get_action(dev), "add") == 0)
++				udev_selinux_lsetfilecon(udev, file, mode);
++
++			/* always update timestamp when we re-use the node, like on media change events */
++ 			utimensat(AT_FDCWD, file, NULL, 0);
+ 		} else {
+ 			char file_tmp[UTIL_PATH_SIZE + sizeof(TMP_FILE_EXT)];
+ 
+@@ -73,7 +83,11 @@ int udev_node_mknod(struct udev_device *
+ 			if (err != 0) {
+ 				err(udev, "rename(%s, %s) failed: %m\n", file_tmp, file);
+ 				unlink(file_tmp);
++				goto exit;
+ 			}
++			info(udev, "set permissions %s, %#o, uid=%u, gid=%u\n", file, mode, uid, gid);
++			chmod(file, mode);
++			chown(file, uid, gid);
+ 		}
+ 	} else {
+ 		info(udev, "mknod(%s, %#o, (%u,%u))\n", file, mode, major(devnum), minor(devnum));
+@@ -87,28 +101,11 @@ int udev_node_mknod(struct udev_device *
+ 				err = -errno;
+ 			udev_selinux_resetfscreatecon(udev);
+ 		} while (err == -ENOENT);
+-		if (err != 0) {
++		if (err != 0)
+ 			err(udev, "mknod(%s, %#o, (%u,%u) failed: %m\n", file, mode, major(devnum), minor(devnum));
+-			goto exit;
+-		}
+-	}
+-
+-	if (!preserve || stats.st_mode != mode) {
+-		info(udev, "chmod(%s, %#o)\n", file, mode);
+-		err = chmod(file, mode);
+-		if (err != 0) {
+-			err(udev, "chmod(%s, %#o) failed: %m\n", file, mode);
+-			goto exit;
+-		}
+-	}
+-
+-	if (!preserve || stats.st_uid != uid || stats.st_gid != gid) {
+-		info(udev, "chown(%s, %u, %u)\n", file, uid, gid);
+-		err = chown(file, uid, gid);
+-		if (err != 0) {
+-			err(udev, "chown(%s, %u, %u) failed: %m\n", file, uid, gid);
+-			goto exit;
+-		}
++		info(udev, "set permissions %s, %#o, uid=%u, gid=%u\n", file, mode, uid, gid);
++		chmod(file, mode);
++		chown(file, uid, gid);
+ 	}
+ exit:
+ 	return err;

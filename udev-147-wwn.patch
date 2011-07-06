@@ -1,0 +1,487 @@
+commit 5dca5368cf8e9c2634099d3f186f5f11edff9844
+Author: David Zeuthen <davidz@redhat.com>
+Date:   Fri Nov 20 20:21:58 2009 -0500
+
+    scsi_id: Export WWN and Unit Serial Number
+    
+    Since the Unit Serial Number and the WWN are useful bits of
+    information export them as properties in the udev database. These
+    bits of information are often printed on the physical disk, see
+    
+    http://people.freedesktop.org/~david/FUJITSU-MAY2036RC-sas-disk-picture.jpg
+    
+    and displaying them separately in the UI (or in /dev/disk) might help
+    users identify the physical disk. This patch exports these bits of
+    information as ID_WWN and ID_SCSI_SERIAL.
+    
+    Note that ata_id also use the ID_WWN property since commit
+    66094a4a7fc1d303e80785d586800eae9841502b (2009-11-04).
+    
+    Also print out ID_SCSI=1 so users of the udev database knows the disk
+    speaks SCSI.
+    
+    Here's the scsi_id output from one of my SAS disks with these changes:
+    
+     ID_SCSI=1
+     ID_VENDOR=FUJITSU
+     ID_VENDOR_ENC=FUJITSU\x20
+     ID_MODEL=MAY2036RC
+     ID_MODEL_ENC=MAY2036RC\x20\x20\x20\x20\x20\x20\x20
+     ID_REVISION=0103
+     ID_TYPE=disk
+     ID_SERIAL=3500000e01b83f520
+     ID_SERIAL_SHORT=500000e01b83f520
+     ID_WWN=0x500000e01b83f520
+     ID_SCSI_SERIAL=B3G1P8500RWT
+    
+    Unfortunately we can't overload ID_SERIAL for two reasons
+    
+     1. ID_SERIAL (and ID_SERIAL_SHORT) exported by scsi_id isn't really
+        the unit serial number (as defined by SCSI) - it is sometimes the
+        WWN (since it is more unique than the Unit Serial Number) and
+        complex rules (to make the serial unique) govern what value to
+        use.
+    
+     2. It would break existing setups if the value of ID_SERIAL changed
+    
+    Signed-off-by: David Zeuthen <davidz@redhat.com>
+
+diff --git a/extras/scsi_id/scsi_id.c b/extras/scsi_id/scsi_id.c
+index 72a7257..9c5b2c3 100644
+--- a/extras/scsi_id/scsi_id.c
++++ b/extras/scsi_id/scsi_id.c
+@@ -549,6 +549,7 @@ static int scsi_id(struct udev *udev, char *maj_min_dev)
+ 	if (export) {
+ 		char serial_str[MAX_SERIAL_LEN];
+ 
++		printf("ID_SCSI=1\n");
+ 		printf("ID_VENDOR=%s\n", vendor_str);
+ 		printf("ID_VENDOR_ENC=%s\n", vendor_enc_str);
+ 		printf("ID_MODEL=%s\n", model_str);
+@@ -563,6 +564,12 @@ static int scsi_id(struct udev *udev, char *maj_min_dev)
+ 			udev_util_replace_chars(serial_str, NULL);
+ 			printf("ID_SERIAL_SHORT=%s\n", serial_str);
+ 		}
++		if (dev_scsi.wwn[0] != '\0') {
++			printf("ID_WWN=0x%s\n", dev_scsi.wwn);
++		}
++		if (dev_scsi.unit_serial_number[0] != '\0') {
++			printf("ID_SCSI_SERIAL=%s\n", dev_scsi.unit_serial_number);
++		}
+ 		goto out;
+ 	}
+ 
+diff --git a/extras/scsi_id/scsi_id.h b/extras/scsi_id/scsi_id.h
+index 9fcadec..4536cfd 100644
+--- a/extras/scsi_id/scsi_id.h
++++ b/extras/scsi_id/scsi_id.h
+@@ -39,6 +39,12 @@ struct scsi_id_device {
+ 	char serial[MAX_SERIAL_LEN];
+ 	char serial_short[MAX_SERIAL_LEN];
+ 	int use_sg;
++
++        /* Always from page 0x80 e.g. 'B3G1P8500RWT' - may not be unique */
++        char unit_serial_number[MAX_SERIAL_LEN];
++
++        /* NULs if not set - otherwise hex encoding using lower-case e.g. '50014ee0016eb572' */
++        char wwn[17];
+ };
+ 
+ extern int scsi_std_inquiry(struct udev *udev, struct scsi_id_device *dev_scsi, const char *devname);
+diff --git a/extras/scsi_id/scsi_serial.c b/extras/scsi_id/scsi_serial.c
+index ab0ffd6..5b18b22 100644
+--- a/extras/scsi_id/scsi_serial.c
++++ b/extras/scsi_id/scsi_serial.c
+@@ -85,11 +85,15 @@ static const char hex_str[]="0123456789abcdef";
+ #define SG_ERR_CAT_MEDIA_CHANGED	1	/* interpreted from sense buffer */
+ #define SG_ERR_CAT_RESET		2	/* interpreted from sense buffer */
+ #define SG_ERR_CAT_TIMEOUT		3
+-#define SG_ERR_CAT_RECOVERED		4 	/* Successful command after recovered err */
+-#define SG_ERR_CAT_NOTSUPPORTED 	5	/* Illegal / unsupported command */
++#define SG_ERR_CAT_RECOVERED		4	/* Successful command after recovered err */
++#define SG_ERR_CAT_NOTSUPPORTED		5	/* Illegal / unsupported command */
+ #define SG_ERR_CAT_SENSE		98	/* Something else in the sense buffer */
+ #define SG_ERR_CAT_OTHER		99	/* Some other error/warning */
+ 
++static int do_scsi_page80_inquiry(struct udev *udev,
++				  struct scsi_id_device *dev_scsi, int fd,
++				  char *serial, char *serial_short, int max_len);
++
+ static int sg_err_category_new(struct udev *udev,
+ 			       int scsi_status, int msg_status, int
+ 			       host_status, int driver_status, const
+@@ -420,7 +424,7 @@ static int do_scsi_page0_inquiry(struct udev *udev,
+ 		return 1;
+ 	}
+ 	if (buffer[3] > len) {
+-		info(udev, "%s: page 0 buffer too long %d\n", dev_scsi->kernel,  buffer[3]);
++		info(udev, "%s: page 0 buffer too long %d\n", dev_scsi->kernel,	 buffer[3]);
+ 		return 1;
+ 	}
+ 
+@@ -477,7 +481,8 @@ static int check_fill_0x83_id(struct udev *udev,
+ 			      struct scsi_id_device *dev_scsi,
+ 			      unsigned char *page_83,
+ 			      const struct scsi_id_search_values
+-			      *id_search, char *serial, char *serial_short, int max_len)
++			      *id_search, char *serial, char *serial_short, int max_len,
++                              char *wwn)
+ {
+ 	int i, j, s, len;
+ 
+@@ -561,6 +566,10 @@ static int check_fill_0x83_id(struct udev *udev,
+ 	}
+ 
+ 	strcpy(serial_short, &serial[s]);
++
++        if (id_search->id_type == SCSI_ID_NAA && wwn != NULL) {
++                strncpy(wwn, &serial[s], 16);
++        }
+ 	return 0;
+ }
+ 
+@@ -591,12 +600,16 @@ static int check_fill_0x83_prespc3(struct udev *udev,
+ /* Get device identification VPD page */
+ static int do_scsi_page83_inquiry(struct udev *udev,
+ 				  struct scsi_id_device *dev_scsi, int fd,
+-				  char *serial, char *serial_short, int len)
++				  char *serial, char *serial_short, int len,
++                                  char *unit_serial_number, char *wwn)
+ {
+ 	int retval;
+ 	unsigned int id_ind, j;
+ 	unsigned char page_83[SCSI_INQ_BUFF_LEN];
+ 
++        /* also pick up the page 80 serial number */
++        do_scsi_page80_inquiry(udev, dev_scsi, fd, NULL, unit_serial_number, MAX_SERIAL_LEN);
++
+ 	memset(page_83, 0, SCSI_INQ_BUFF_LEN);
+ 	retval = scsi_inquiry(udev, dev_scsi, fd, 1, PAGE_83, page_83,
+ 			      SCSI_INQ_BUFF_LEN);
+@@ -643,7 +656,8 @@ static int do_scsi_page83_inquiry(struct udev *udev,
+ 					       serial, serial_short, len);
+ 
+ 	/*
+-	 * Search for a match in the prioritized id_search_list.
++	 * Search for a match in the prioritized id_search_list - since WWN ids
++         * come first we can pick up the WWN in check_fill_0x83_id().
+ 	 */
+ 	for (id_ind = 0;
+ 	     id_ind < sizeof(id_search_list)/sizeof(id_search_list[0]);
+@@ -656,7 +670,8 @@ static int do_scsi_page83_inquiry(struct udev *udev,
+ 			retval = check_fill_0x83_id(udev,
+ 						    dev_scsi, &page_83[j],
+ 						    &id_search_list[id_ind],
+-						    serial, serial_short, len);
++						    serial, serial_short, len,
++                                                    wwn);
+ 			dbg(udev, "%s id desc %d/%d/%d\n", dev_scsi->kernel,
+ 				id_search_list[id_ind].id_type,
+ 				id_search_list[id_ind].naa_type,
+@@ -775,15 +790,19 @@ static int do_scsi_page80_inquiry(struct udev *udev,
+ 	 * Prepend 'S' to avoid unlikely collision with page 0x83 vendor
+ 	 * specific type where we prepend '0' + vendor + model.
+ 	 */
+-	serial[0] = 'S';
+-	ser_ind = prepend_vendor_model(udev, dev_scsi, &serial[1]);
+-	if (ser_ind < 0)
+-		return 1;
+-	len = buf[3];
+-	for (i = 4; i < len + 4; i++, ser_ind++)
+-		serial[ser_ind] = buf[i];
+-	memcpy(serial_short, &buf[4], len);
+-	serial_short[len] = '\0';
++        len = buf[3];
++        if (serial != NULL) {
++                serial[0] = 'S';
++                ser_ind = prepend_vendor_model(udev, dev_scsi, &serial[1]);
++                if (ser_ind < 0)
++                        return 1;
++                for (i = 4; i < len + 4; i++, ser_ind++)
++                        serial[ser_ind] = buf[i];
++        }
++        if (serial_short != NULL) {
++                memcpy(serial_short, &buf[4], len);
++                serial_short[len] = '\0';
++        }
+ 	return 0;
+ }
+ 
+@@ -866,7 +885,7 @@ int scsi_get_serial(struct udev *udev,
+ 			goto completed;
+ 		}
+ 	} else if (page_code == PAGE_83) {
+-		if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len)) {
++		if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn)) {
+ 			retval = 1;
+ 			goto completed;
+ 		} else  {
+@@ -882,7 +901,7 @@ int scsi_get_serial(struct udev *udev,
+ 			 * conform to pre-SPC3 expectations.
+ 			 */
+ 			if (retval == 2) {
+-				if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len)) {
++				if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn)) {
+ 					retval = 1;
+ 					goto completed;
+ 				} else  {
+@@ -922,7 +941,7 @@ int scsi_get_serial(struct udev *udev,
+ 	for (ind = 4; ind <= page0[3] + 3; ind++)
+ 		if (page0[ind] == PAGE_83)
+ 			if (!do_scsi_page83_inquiry(udev, dev_scsi, fd,
+-						    dev_scsi->serial, dev_scsi->serial_short, len)) {
++						    dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn)) {
+ 				/*
+ 				 * Success
+ 				 */
+commit de41a92d5d4436c59984239bffe8a87f6b58a832
+Author: David Zeuthen <davidz@redhat.com>
+Date:   Wed Nov 25 11:06:10 2009 -0500
+
+    Create /dev/disk/by-id/wwn-0x... symlinks
+    
+    Now that both ata_id and scsi_id exports the World Wide Name in the
+    ID_WWN property, use this to create persistent symlinks. Example
+    
+     /dev/disk/by-id/wwn-0x500000e01b83f360 -> ../../sdn
+     /dev/disk/by-id/wwn-0x500000e01b83f440 -> ../../sdm
+    
+    Signed-off-by: David Zeuthen <davidz@redhat.com>
+
+diff --git a/rules/rules.d/60-persistent-storage.rules b/rules/rules.d/60-persistent-storage.rules
+index 0950847..3e257a8 100644
+--- a/rules/rules.d/60-persistent-storage.rules
++++ b/rules/rules.d/60-persistent-storage.rules
+@@ -75,4 +75,7 @@ KERNEL!="sr*", OPTIONS+="watch"
+ ENV{ID_FS_USAGE}=="filesystem|other|crypto", ENV{ID_FS_UUID_ENC}=="?*", SYMLINK+="disk/by-uuid/$env{ID_FS_UUID_ENC}"
+ ENV{ID_FS_USAGE}=="filesystem|other", ENV{ID_FS_LABEL_ENC}=="?*", SYMLINK+="disk/by-label/$env{ID_FS_LABEL_ENC}"
+ 
++# by-id (World Wide Name)
++ENV{DEVTYPE}=="disk", ENV{ID_WWN}=="?*", SYMLINK+="disk/by-id/wwn-$env{ID_WWN}"
++
+ LABEL="persistent_storage_end"
+commit 1808941c63d9eec74fc20dbbef0b844402669e97
+Author: David Zeuthen <davidz@redhat.com>
+Date:   Wed Nov 25 11:17:54 2009 -0500
+
+    Also create /dev/disk/by-id/wwn-0x..-part%n symlinks for partitions
+    
+     # ls -l /dev/disk/by-id/wwn-0x500
+     wwn-0x500000e01b83f360        wwn-0x50014ee25578924f-part1
+     wwn-0x500000e01b83f440        wwn-0x50014ee25578924f-part2
+     wwn-0x500000e01b83f520        wwn-0x50014ee2aabdc41b
+     wwn-0x500000e01b843d90        wwn-0x50014ee2aabdc41b-part1
+     wwn-0x5000c50016359fd1        wwn-0x50014ee2aabdc41b-part2
+     wwn-0x50014ee0016eb4f5        wwn-0x5001517958cabd77
+     wwn-0x50014ee0016eb572        wwn-0x5001517958cabd77-part1
+     wwn-0x50014ee055d524e2        wwn-0x5001517958cabd77-part2
+     wwn-0x50014ee055d524e2-part1  wwn-0x5001517958d6a74e
+     wwn-0x50014ee055d524e2-part2  wwn-0x5001517958d6a74e-part1
+     wwn-0x50014ee1003d9c50        wwn-0x5001517958d6a74e-part2
+     wwn-0x50014ee1003d9c50-part1  wwn-0x50024e9200c0c693
+     wwn-0x50014ee1003d9c50-part2  wwn-0x50024e9200c0c694
+     wwn-0x50014ee1aac30d4e        wwn-0x50024e9200c0c6ae
+     wwn-0x50014ee1aac30d4e-part1  wwn-0x50024e9200c0c6af
+     wwn-0x50014ee1aac30d4e-part2  wwn-0x50024e9200c0c6b0
+     wwn-0x50014ee25578924f        wwn-0x50024e9200c0c6b1
+    
+    Signed-off-by: David Zeuthen <davidz@redhat.com>
+
+diff --git a/rules/rules.d/60-persistent-storage.rules b/rules/rules.d/60-persistent-storage.rules
+index 3e257a8..acc8fb8 100644
+--- a/rules/rules.d/60-persistent-storage.rules
++++ b/rules/rules.d/60-persistent-storage.rules
+@@ -77,5 +77,6 @@ ENV{ID_FS_USAGE}=="filesystem|other", ENV{ID_FS_LABEL_ENC}=="?*", SYMLINK+="disk
+ 
+ # by-id (World Wide Name)
+ ENV{DEVTYPE}=="disk", ENV{ID_WWN}=="?*", SYMLINK+="disk/by-id/wwn-$env{ID_WWN}"
++ENV{DEVTYPE}=="partition", ENV{ID_WWN}=="?*", SYMLINK+="disk/by-id/wwn-$env{ID_WWN}-part%n"
+ 
+ LABEL="persistent_storage_end"
+commit 81d705371980d2a24fac70071631538547273582
+Author: David Zeuthen <davidz@redhat.com>
+Date:   Fri Dec 4 11:25:09 2009 -0500
+
+    Export ID_WWN_VENDOR_EXTENSION and ID_WWN_WITH_EXTENSION
+    
+    Some SCSI devices use the same WWN and have a WWN extension that we
+    need to take into account when creating the /dev/disk/by-id/wwn
+    symlinks. Thus, introduce ID_WWN_WITH_EXTENSION. This property will
+    contain either the WWN (if no extension is present) or the WWN with
+    the vendor extension appended.
+    
+    Example:
+    
+     # /lib/udev/ata_id/ata_id --export /dev/sda |grep WWN
+     ID_WWN=0x5001517387d61905
+     ID_WWN_WITH_EXTENSION=0x5001517387d61905
+    
+     # /lib/udev/scsi_id --whitelisted --export -d /dev/sdb |grep WWN
+     ID_WWN=0x600508b400105df7
+     ID_WWN_VENDOR_EXTENSION=0x0000e00000d80000
+     ID_WWN_WITH_EXTENSION=0x600508b400105df70000e00000d80000
+    
+     # /lib/udev/scsi_id --whitelisted --export -d /dev/sdc |grep WWN
+     ID_WWN=0x600508b400105df7
+     ID_WWN_VENDOR_EXTENSION=0x0000e00000db0000
+     ID_WWN_WITH_EXTENSION=0x600508b400105df70000e00000db0000
+    
+    Signed-off-by: David Zeuthen <davidz@redhat.com>
+
+diff --git a/extras/ata_id/ata_id.c b/extras/ata_id/ata_id.c
+index 66b9f42..b382d24 100644
+--- a/extras/ata_id/ata_id.c
++++ b/extras/ata_id/ata_id.c
+@@ -1,4 +1,5 @@
+-/*
++/* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
++ *
+  * ata_id - reads product/serial number from ATA drives
+  *
+  * Copyright (C) 2005-2008 Kay Sievers <kay.sievers@vrfy.org>
+@@ -509,6 +510,8 @@ int main(int argc, char *argv[])
+ 			wwwn <<= 16;
+ 			wwwn  |= *((uint16_t *) identify + 111);
+ 			printf("ID_WWN=0x%llx\n", (unsigned long long int) wwwn);
++			/* ATA devices have no vendor extension */
++			printf("ID_WWN_WITH_EXTENSION=0x%llx\n", (unsigned long long int) wwwn);
+ 		}
+ 	} else {
+ 		if (serial[0] != '\0')
+diff --git a/extras/scsi_id/scsi_id.c b/extras/scsi_id/scsi_id.c
+index 9c5b2c3..5c40658 100644
+--- a/extras/scsi_id/scsi_id.c
++++ b/extras/scsi_id/scsi_id.c
+@@ -1,4 +1,5 @@
+-/*
++/* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
++ *
+  * scsi_id.c
+  *
+  * Main section of the scsi_id program
+@@ -566,6 +567,12 @@ static int scsi_id(struct udev *udev, char *maj_min_dev)
+ 		}
+ 		if (dev_scsi.wwn[0] != '\0') {
+ 			printf("ID_WWN=0x%s\n", dev_scsi.wwn);
++			if (dev_scsi.wwn_vendor_extension[0] != '\0') {
++				printf("ID_WWN_VENDOR_EXTENSION=0x%s\n", dev_scsi.wwn_vendor_extension);
++				printf("ID_WWN_WITH_EXTENSION=0x%s%s\n", dev_scsi.wwn, dev_scsi.wwn_vendor_extension);
++			} else {
++				printf("ID_WWN_WITH_EXTENSION=0x%s\n", dev_scsi.wwn);
++			}
+ 		}
+ 		if (dev_scsi.unit_serial_number[0] != '\0') {
+ 			printf("ID_SCSI_SERIAL=%s\n", dev_scsi.unit_serial_number);
+diff --git a/extras/scsi_id/scsi_id.h b/extras/scsi_id/scsi_id.h
+index 4536cfd..3b8b236 100644
+--- a/extras/scsi_id/scsi_id.h
++++ b/extras/scsi_id/scsi_id.h
+@@ -1,4 +1,5 @@
+-/*
++/*  -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
++ *
+  * scsi_id.h
+  *
+  * General defines and such for scsi_id
+@@ -45,6 +46,9 @@ struct scsi_id_device {
+ 
+         /* NULs if not set - otherwise hex encoding using lower-case e.g. '50014ee0016eb572' */
+         char wwn[17];
++
++        /* NULs if not set - otherwise hex encoding using lower-case e.g. '0xe00000d80000' */
++        char wwn_vendor_extension[17];
+ };
+ 
+ extern int scsi_std_inquiry(struct udev *udev, struct scsi_id_device *dev_scsi, const char *devname);
+diff --git a/extras/scsi_id/scsi_serial.c b/extras/scsi_id/scsi_serial.c
+index 5b18b22..0c9d9c3 100644
+--- a/extras/scsi_id/scsi_serial.c
++++ b/extras/scsi_id/scsi_serial.c
+@@ -1,4 +1,5 @@
+-/*
++/* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
++ *
+  * scsi_serial.c
+  *
+  * Code related to requesting and getting an id from a scsi device
+@@ -482,7 +483,8 @@ static int check_fill_0x83_id(struct udev *udev,
+ 			      unsigned char *page_83,
+ 			      const struct scsi_id_search_values
+ 			      *id_search, char *serial, char *serial_short, int max_len,
+-                              char *wwn)
++                              char *wwn,
++			      char *wwn_vendor_extension)
+ {
+ 	int i, j, s, len;
+ 
+@@ -569,6 +571,9 @@ static int check_fill_0x83_id(struct udev *udev,
+ 
+         if (id_search->id_type == SCSI_ID_NAA && wwn != NULL) {
+                 strncpy(wwn, &serial[s], 16);
++		if (wwn_vendor_extension != NULL) {
++			strncpy(wwn_vendor_extension, &serial[s + 16], 16);
++		}
+         }
+ 	return 0;
+ }
+@@ -601,7 +606,8 @@ static int check_fill_0x83_prespc3(struct udev *udev,
+ static int do_scsi_page83_inquiry(struct udev *udev,
+ 				  struct scsi_id_device *dev_scsi, int fd,
+ 				  char *serial, char *serial_short, int len,
+-                                  char *unit_serial_number, char *wwn)
++                                  char *unit_serial_number, char *wwn,
++				  char *wwn_vendor_extension)
+ {
+ 	int retval;
+ 	unsigned int id_ind, j;
+@@ -671,7 +677,8 @@ static int do_scsi_page83_inquiry(struct udev *udev,
+ 						    dev_scsi, &page_83[j],
+ 						    &id_search_list[id_ind],
+ 						    serial, serial_short, len,
+-                                                    wwn);
++                                                    wwn,
++						    wwn_vendor_extension);
+ 			dbg(udev, "%s id desc %d/%d/%d\n", dev_scsi->kernel,
+ 				id_search_list[id_ind].id_type,
+ 				id_search_list[id_ind].naa_type,
+@@ -885,7 +892,7 @@ int scsi_get_serial(struct udev *udev,
+ 			goto completed;
+ 		}
+ 	} else if (page_code == PAGE_83) {
+-		if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn)) {
++		if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn, dev_scsi->wwn_vendor_extension)) {
+ 			retval = 1;
+ 			goto completed;
+ 		} else  {
+@@ -901,7 +908,7 @@ int scsi_get_serial(struct udev *udev,
+ 			 * conform to pre-SPC3 expectations.
+ 			 */
+ 			if (retval == 2) {
+-				if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn)) {
++				if (do_scsi_page83_inquiry(udev, dev_scsi, fd, dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn, dev_scsi->wwn_vendor_extension)) {
+ 					retval = 1;
+ 					goto completed;
+ 				} else  {
+@@ -941,7 +948,7 @@ int scsi_get_serial(struct udev *udev,
+ 	for (ind = 4; ind <= page0[3] + 3; ind++)
+ 		if (page0[ind] == PAGE_83)
+ 			if (!do_scsi_page83_inquiry(udev, dev_scsi, fd,
+-						    dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn)) {
++						    dev_scsi->serial, dev_scsi->serial_short, len, dev_scsi->unit_serial_number, dev_scsi->wwn, dev_scsi->wwn_vendor_extension)) {
+ 				/*
+ 				 * Success
+ 				 */
+diff --git a/rules/rules.d/60-persistent-storage.rules b/rules/rules.d/60-persistent-storage.rules
+index acc8fb8..6f12a9a 100644
+--- a/rules/rules.d/60-persistent-storage.rules
++++ b/rules/rules.d/60-persistent-storage.rules
+@@ -76,7 +76,7 @@ ENV{ID_FS_USAGE}=="filesystem|other|crypto", ENV{ID_FS_UUID_ENC}=="?*", SYMLINK+
+ ENV{ID_FS_USAGE}=="filesystem|other", ENV{ID_FS_LABEL_ENC}=="?*", SYMLINK+="disk/by-label/$env{ID_FS_LABEL_ENC}"
+ 
+ # by-id (World Wide Name)
+-ENV{DEVTYPE}=="disk", ENV{ID_WWN}=="?*", SYMLINK+="disk/by-id/wwn-$env{ID_WWN}"
+-ENV{DEVTYPE}=="partition", ENV{ID_WWN}=="?*", SYMLINK+="disk/by-id/wwn-$env{ID_WWN}-part%n"
++ENV{DEVTYPE}=="disk", ENV{ID_WWN_WITH_EXTENSION}=="?*", SYMLINK+="disk/by-id/wwn-$env{ID_WWN_WITH_EXTENSION}"
++ENV{DEVTYPE}=="partition", ENV{ID_WWN_WITH_EXTENSION}=="?*", SYMLINK+="disk/by-id/wwn-$env{ID_WWN_WITH_EXTENSION}-part%n"
+ 
+ LABEL="persistent_storage_end"

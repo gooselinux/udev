@@ -1,0 +1,53 @@
+From cccfffbe04c01be12fb42cb12f3f7aa5e2a22dd4 Mon Sep 17 00:00:00 2001
+From: Kay Sievers <kay.sievers@vrfy.org>
+Date: Wed, 7 Apr 2010 09:24:25 +0200
+Subject: [PATCH 05/10] cdrom_id: retry to open the device, if EBUSY
+
+We might fight about the device with polling processes, or other
+users who probe the device. Retry a few times if the other one goes
+away in the meantime.
+
+Based on a patch from Harald Hoyer.
+---
+ extras/cdrom_id/cdrom_id.c |   18 +++++++++++++++++-
+ 1 files changed, 17 insertions(+), 1 deletions(-)
+
+diff --git a/extras/cdrom_id/cdrom_id.c b/extras/cdrom_id/cdrom_id.c
+index 036ef28..7c9f8cc 100644
+--- a/extras/cdrom_id/cdrom_id.c
++++ b/extras/cdrom_id/cdrom_id.c
+@@ -30,6 +30,7 @@
+ #include <fcntl.h>
+ #include <errno.h>
+ #include <getopt.h>
++#include <time.h>
+ #include <scsi/sg.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
+@@ -591,7 +592,22 @@ int main(int argc, char *argv[])
+ 		goto exit;
+ 	}
+ 
+-	fd = open(node, O_RDONLY|O_NONBLOCK|(is_mounted(node) ? 0 : O_EXCL));
++	if (is_mounted(node)) {
++		fd = open(node, O_RDONLY|O_NONBLOCK);
++	} else {
++		int cnt;
++		struct timespec duration;
++
++		srand((unsigned int)getpid());
++		for (cnt = 40; cnt > 0; cnt--) {
++			fd = open(node, O_RDONLY|O_NONBLOCK|O_EXCL);
++			if (fd >= 0 || errno != EBUSY)
++				break;
++			duration.tv_sec = 0;
++			duration.tv_nsec = (100 * 1000 * 1000) + (rand() % 100 * 1000 * 1000);
++			nanosleep(&duration, NULL);
++		}
++	}
+ 	if (fd < 0) {
+ 		info(udev, "unable to open '%s'\n", node);
+ 		fprintf(stderr, "unable to open '%s'\n", node);
+-- 
+1.7.0.1
+

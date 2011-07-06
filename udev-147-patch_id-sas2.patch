@@ -1,0 +1,82 @@
+--- udev-147/extras/path_id/path_id.c	2010-06-25 10:42:12.000000000 +0200
++++ udev-147/extras/path_id/path_id.c 	2010-06-25 10:44:47.000000000 +0200
+@@ -124,36 +124,50 @@
+ 	struct udev *udev  = udev_device_get_udev(parent);
+ 	struct udev_device *end_dev;
+ 	struct udev_device *sasdev;
++	struct udev_device *phydev;
++	struct udev_device *parent_dev;
++	struct udev_device *child_dev;
+ 	char syspath[UTIL_PATH_SIZE], *base;
+-	const char *name, *enc, *bay;
+-        char *port, *slash;
++	char phy_path[UTIL_PATH_SIZE];
++	const char *end_name, *name, *enc, *bay;
++	const char *port_path;
++	int scsi_host;
++	int num_phys = 8;
++	int i;
+ 
+-	end_dev = parent;
++	parent_dev = parent;
+ 	while (1) {
+-		end_dev = udev_device_get_parent(end_dev);
+-		if (end_dev == NULL)
++		child_dev = parent_dev;
++		parent_dev = udev_device_get_parent(child_dev);
++		if (parent_dev == NULL)
+ 			return NULL;
+-		name = udev_device_get_sysname(end_dev);
+-		if (strstr(name, "end_device-"))
++		name = udev_device_get_sysname(parent_dev);
++		if (strstr(name, "end_device-")) {
++			end_dev = parent_dev;
++			end_name = name;
++		} else if (sscanf(name, "host%d", &scsi_host)) {
++			port_path = udev_device_get_syspath(child_dev);
+ 			break;
++		}
+ 	}
++
+ 	base = strdup(udev_device_get_syspath(end_dev));
+ 	if (!base)
+ 		return NULL;
+-
+- 	port = strstr(base, "port-");
+- 	if (!port)
+- 		return NULL;
+- 	slash = strchr(port, '/');
+- 	if (!slash)
+- 		return NULL;
+- 	port = strndup(port, slash - port);
+- 	if (!port)
+- 		return NULL;
+-
+-	snprintf(syspath, sizeof(syspath), "%s/sas_device/%s", base, name);
++	snprintf(syspath, sizeof(syspath), "%s/sas_device/%s", base, end_name);
+ 	free(base);
+ 
++	for (i = 0 ; i < num_phys ; i++) {
++		snprintf(phy_path, sizeof(phy_path), "%s/phy-%d:%d",
++				port_path, scsi_host, i);
++		if (phydev = udev_device_new_from_syspath(udev, phy_path)) {
++			udev_device_unref(phydev);
++			break;
++		}
++	}
++	if (i == num_phys)
++		return NULL;
++
+ 	sasdev = udev_device_new_from_syspath(udev, syspath);
+ 	if (sasdev == NULL) {
+ 		fprintf(stderr, "unable to access '%s'\n", syspath);
+@@ -166,8 +180,7 @@
+ 		goto out;
+ 	}
+ 
+-	path_prepend(path, "sas-%s-%s-%s", port, enc ? enc : "unknown", bay);
+-	free(port);
++	path_prepend(path, "sas-%s-%s-%s", strrchr(phy_path, '/') + 1, enc ? enc : "unknown", bay);
+ out:
+ 	udev_device_unref(sasdev);
+ 	return parent;

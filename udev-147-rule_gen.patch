@@ -1,0 +1,243 @@
+diff -up udev-147/extras/rule_generator/75-persistent-net-generator.rules.rg udev-147/extras/rule_generator/75-persistent-net-generator.rules
+--- udev-147/extras/rule_generator/75-persistent-net-generator.rules.rg	2010-07-20 10:36:06.000000000 +0200
++++ udev-147/extras/rule_generator/75-persistent-net-generator.rules	2010-07-20 10:36:06.000000000 +0200
+@@ -15,7 +15,8 @@ ACTION!="add", GOTO="persistent_net_gene
+ SUBSYSTEM!="net", GOTO="persistent_net_generator_end"
+ 
+ # ignore the interface if a name has already been set
+-NAME=="?*", GOTO="persistent_net_generator_end"
++NAME=="?*", ENV{INTERFACE_NAME}=="", GOTO="persistent_net_generator_end"
++NAME=="?*", ENV{INTERFACE_NAME}=="?*", ENV{ASSIGNED_INTERFACE_NAME}="$name"
+ 
+ # device name whitelist
+ KERNEL!="eth*|ath*|wlan*[0-9]|msh*|ra*|sta*|ctc*|lcs*|hsi*", GOTO="persistent_net_generator_end"
+@@ -29,6 +30,10 @@ ENV{MATCHADDR}="$attr{address}"
+ # match interface type
+ ENV{MATCHIFTYPE}="$attr{type}"
+ 
++# do not use "locally administered" MAC address
++ATTR{addr_assign_type}=="?*", ATTR{addr_assign_type}!="0", ENV{MATCHADDR}="", ENV{MATCHID}="$env{NET_MATCHID}", GOTO="globally_administered_whitelist"
++ATTR{addr_assign_type}=="0", GOTO="globally_administered_whitelist"
++
+ # These vendors are known to violate the local MAC address assignment scheme
+ # Interlan, DEC (UNIBUS or QBUS), Apollo, Cisco, Racal-Datacom
+ ENV{MATCHADDR}=="02:07:01:*", GOTO="globally_administered_whitelist"
+@@ -73,7 +78,7 @@ SUBSYSTEMS=="pcmcia", ENV{COMMENT}="PCMC
+ SUBSYSTEMS=="ieee1394", ENV{COMMENT}="Firewire device $attr{host_id})"
+ 
+ # ibmveth likes to use "locally administered" MAC addresses
+-DRIVERS=="ibmveth", ENV{MATCHADDR}="$attr{address}", ENV{COMMENT}="ibmveth ($id)"
++DRIVERS=="ibmveth", ENV{MATCHADDR}="$attr{address}", ENV{COMMENT}="ibmveth ($id)", ENV{MATCHID}=""
+ 
+ # S/390 uses id matches only, do not use MAC address match
+ SUBSYSTEMS=="ccwgroup", ENV{COMMENT}="S/390 $driver device at $id", ENV{MATCHID}="$id", ENV{MATCHDRV}="$driver", ENV{MATCHADDR}="", ENV{MATCHDEVID}=""
+diff -up udev-147/extras/rule_generator/rule_generator.functions.rg udev-147/extras/rule_generator/rule_generator.functions
+--- udev-147/extras/rule_generator/rule_generator.functions.rg	2008-10-23 15:33:41.000000000 +0200
++++ udev-147/extras/rule_generator/rule_generator.functions	2010-07-20 10:36:06.000000000 +0200
+@@ -70,7 +70,7 @@ choose_rules_file() {
+ 
+ # Return the name of the first free device.
+ raw_find_next_available() {
+-	local links="$1"
++	local links="$*"
+ 
+ 	local basename=${links%%[ 0-9]*}
+ 	local max=-1
+diff -up udev-147/extras/rule_generator/write_net_rules.rg udev-147/extras/rule_generator/write_net_rules
+--- udev-147/extras/rule_generator/write_net_rules.rg	2008-10-23 15:34:15.000000000 +0200
++++ udev-147/extras/rule_generator/write_net_rules	2010-07-20 10:36:06.000000000 +0200
+@@ -29,21 +29,42 @@ if [ -n "$UDEV_LOG" ]; then
+ 	fi
+ fi
+ 
++if [ -n "$ASSIGNED_INTERFACE_NAME" -a "$ASSIGNED_INTERFACE_NAME" = "$INTERFACE_NAME" ]; then
++	exit 0
++fi
++
+ RULES_FILE='/etc/udev/rules.d/70-persistent-net.rules'
+ 
+ . /lib/udev/rule_generator.functions
+ 
++find_all_ifcfg() {
++    local links=$1
++    local __sed_discard_ignored_files='/\(~\|\.bak\|\.orig\|\.rpmnew\|\.rpmorig\|\.rpmsave\)$/d'
++
++    files=$(echo /etc/sysconfig/network-scripts/ifcfg-* \
++	| LC_ALL=C sed -e "$__sed_discard_ignored_files")
++    for i in $files; do
++	( 
++	    . $i
++	    [ -n "$HWADDR" ] && [ "${links%%[ \[\]0-9]*}" = "${DEVICE%%[ \[\]0-9]*}" ] && echo $DEVICE
++	)
++    done
++}
++
+ interface_name_taken() {
+ 	local value="$(find_all_rules 'NAME=' $INTERFACE)"
+ 	if [ "$value" ]; then
+ 		return 0
+ 	else
++	        for i in $(find_all_ifcfg "$INTERFACE"); do
++		        [ "$INTERFACE" = "$i" ] && return 0
++		done
+ 		return 1
+ 	fi
+ }
+ 
+ find_next_available() {
+-	raw_find_next_available "$(find_all_rules 'NAME=' "$1")"
++	raw_find_next_available $(find_all_rules 'NAME=' "$1") $(find_all_ifcfg "$1")
+ }
+ 
+ write_rule() {
+@@ -81,6 +102,10 @@ choose_rules_file
+ # the DRIVERS key is needed to not match bridges and VLAN sub-interfaces
+ if [ "$MATCHADDR" ]; then
+ 	match="$match, DRIVERS==\"?*\", ATTR{address}==\"$MATCHADDR\""
++else
++	if [ "$INTERFACE_NAME" ]; then
++		match="$match, DRIVERS==\"?*\", ENV{INTERFACE_NAME}==\"$INTERFACE_NAME\""
++	fi
+ fi
+ 
+ if [ "$MATCHDRV" ]; then
+@@ -119,6 +144,8 @@ else
+ 	# if a rule using the current name already exists, find a new name
+ 	if interface_name_taken; then
+ 		INTERFACE="$basename$(find_next_available "$basename[0-9]*")"
++		# prevent INTERFACE from being "eth" instead of "eth0"
++		[ "$INTERFACE" = "${INTERFACE%%[ \[\]0-9]*}" ] && INTERFACE=${INTERFACE}0
+ 		echo "INTERFACE_NEW=$INTERFACE"
+ 	fi
+ fi
+diff -up udev-147/libudev/libudev-device-private.c.rg udev-147/libudev/libudev-device-private.c
+--- udev-147/libudev/libudev-device-private.c.rg	2009-10-19 23:51:08.000000000 +0200
++++ udev-147/libudev/libudev-device-private.c	2010-07-20 10:36:06.000000000 +0200
+@@ -17,6 +17,7 @@
+ #include <fcntl.h>
+ #include <string.h>
+ #include <sys/stat.h>
++#include <errno.h>
+ 
+ #include "libudev.h"
+ #include "libudev-private.h"
+@@ -113,10 +114,13 @@ int udev_device_delete_db(struct udev_de
+ {
+ 	struct udev *udev = udev_device_get_udev(udev_device);
+ 	char filename[UTIL_PATH_SIZE];
++	int eno, ret;
+ 
+ 	util_strscpyl(filename, sizeof(filename), udev_get_dev_path(udev), "/.udev/db/",
+ 		      udev_device_get_subsystem(udev_device), ":", udev_device_get_sysname(udev_device), NULL);
+-	unlink(filename);
++	ret = unlink(filename);
++	eno = errno;
++	info(udev, "remove db file for '%s' in '%s = %s'\n", udev_device_get_devpath(udev_device), filename, (ret == 0) ? "success" : strerror(eno));
+ 	return 0;
+ }
+ 
+@@ -125,10 +129,14 @@ int udev_device_rename_db(struct udev_de
+ 	struct udev *udev = udev_device_get_udev(udev_device);
+ 	char filename_old[UTIL_PATH_SIZE];
+ 	char filename[UTIL_PATH_SIZE];
++	int eno, ret;
+ 
+ 	util_strscpyl(filename_old, sizeof(filename_old), udev_get_dev_path(udev), "/.udev/db/",
+ 		      udev_device_get_subsystem(udev_device), ":", udev_device_get_sysname_old(udev_device), NULL);
+ 	util_strscpyl(filename, sizeof(filename), udev_get_dev_path(udev), "/.udev/db/",
+ 		      udev_device_get_subsystem(udev_device), ":", udev_device_get_sysname(udev_device), NULL);
+-	return rename(filename_old, filename);
++	ret = rename(filename_old, filename);
++	eno = errno;
++	info(udev, "rename db file from '%s' to '%s' = %s\n", filename_old, filename, (ret == 0) ? "success" : strerror(eno));
++	return ret;
+ }
+diff -up udev-147/rules/rules.d/75-net-description.rules.rg udev-147/rules/rules.d/75-net-description.rules
+--- udev-147/rules/rules.d/75-net-description.rules.rg	2009-06-16 20:14:43.000000000 +0200
++++ udev-147/rules/rules.d/75-net-description.rules	2010-07-20 10:36:06.000000000 +0200
+@@ -10,5 +10,5 @@ SUBSYSTEMS=="usb", GOTO="net_end"
+ 
+ SUBSYSTEMS=="pci", ENV{ID_MODEL_FROM_DATABASE}=="", IMPORT{program}="pci-db %p"
+ SUBSYSTEMS=="pci", ENV{ID_BUS}="pci", ENV{ID_VENDOR_ID}="$attr{vendor}", ENV{ID_MODEL_ID}="$attr{device}"
+-
++ENV{NET_MATCHID}="$id"
+ LABEL="net_end"
+diff -up udev-147/udev/udev-event.c.rg udev-147/udev/udev-event.c
+--- udev-147/udev/udev-event.c.rg	2010-07-20 10:36:06.000000000 +0200
++++ udev-147/udev/udev-event.c	2010-07-20 10:36:17.000000000 +0200
+@@ -483,23 +483,28 @@ static int rename_netif(struct udev_even
+ 		rename_netif_kernel_log(ifr);
+ 	else {
+ 		int loop;
++		char *newdup;
+ 
+ 		/* see if the destination interface name already exists */
+ 		if (errno != EEXIST) {
+-			err(event->udev, "error changing netif name %s to %s: %m\n",
++			err(event->udev, "error changing netif name '%s' to '%s': %m\n",
+ 			    ifr.ifr_name, ifr.ifr_newname);
+ 			goto exit;
+ 		}
+ 
+ 		/* free our own name, another process may wait for us */
+-		util_strscpyl(ifr.ifr_newname, IFNAMSIZ, udev_device_get_sysname(dev), "_rename", NULL);
++		newdup = strdup(ifr.ifr_newname);
++		util_strscpyl(ifr.ifr_newname, IFNAMSIZ, udev_device_get_sysname(dev), "-", newdup, NULL);
++		free(newdup);
+ 		err = ioctl(sk, SIOCSIFNAME, &ifr);
+ 		if (err != 0) {
+-			err(event->udev, "error changing netif name %s to %s: %m\n",
++			err(event->udev, "error changing netif name '%s' to '%s': %m\n",
+ 			    ifr.ifr_name, ifr.ifr_newname);
+ 			goto exit;
+ 		}
+ 
++		rename_netif_kernel_log(ifr);
++
+ 		/* wait 90 seconds for our target to become available */
+ 		util_strscpy(ifr.ifr_name, IFNAMSIZ, ifr.ifr_newname);
+ 		util_strscpy(ifr.ifr_newname, IFNAMSIZ, event->name);
+@@ -514,7 +519,7 @@ static int rename_netif(struct udev_even
+ 			}
+ 
+ 			if (errno != EEXIST) {
+-				err(event->udev, "error changing net interface name %s to %s: %m\n",
++				err(event->udev, "error changing net interface name '%s' to '%s': %m\n",
+ 				    ifr.ifr_name, ifr.ifr_newname);
+ 				break;
+ 			}
+@@ -536,9 +541,6 @@ int udev_event_execute_rules(struct udev
+ 	if (udev_device_get_sysname_old(dev) != NULL &&
+ 	    strcmp(udev_device_get_sysname_old(dev), udev_device_get_sysname(dev)) != 0) {
+ 		udev_device_rename_db(dev);
+-		info(event->udev, "moved database from '%s:%s' to '%s:%s'\n",
+-		     udev_device_get_subsystem(dev), udev_device_get_sysname_old(dev),
+-		     udev_device_get_subsystem(dev), udev_device_get_sysname(dev));
+ 	}
+ 
+ 	/* add device node */
+@@ -673,6 +675,8 @@ exit_add:
+ 			}
+ 		}
+ 		udev_device_update_db(dev);
++		udev_device_unref(event->dev_db);
++		event->dev_db = NULL;
+ 		goto exit;
+ 	}
+ 
+@@ -716,8 +720,14 @@ exit_add:
+ 	if (event->ignore_device)
+ 		info(event->udev, "device event will be ignored\n");
+ 
+-	if (strcmp(udev_device_get_action(dev), "remove") != 0)
++	if (strcmp(udev_device_get_action(dev), "remove") != 0) {
++		udev_device_read_db(dev);
++		udev_device_set_info_loaded(dev);
++
+ 		udev_device_update_db(dev);
++		udev_device_unref(event->dev_db);
++		event->dev_db = NULL;
++	}
+ 	else
+ 		udev_device_delete_db(dev);
+ exit:

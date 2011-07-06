@@ -1,0 +1,8 @@
+--- udev-141/rules/redhat/40-redhat.rules	2008-10-16 11:03:43.000000000 -0500
++++ udev-141.cpu/rules/redhat/40-redhat.rules	2009-05-20 11:23:12.000000000 -0500
+@@ -25,3 +25,5 @@
+ KERNEL=="vcc/*",               OWNER="vcsa", GROUP="tty"
+ 
+ KERNEL=="event*", ATTRS{idVendor}=="03f0", ATTRS{interface}=="Virtual Mouse", ATTRS{bInterfaceProtocol}=="02", SYMLINK+="input/hp_ilo_mouse"
++
++ACTION=="add", KERNEL=="cpu[0-9]*", RUN+="/bin/bash -c 'echo 1 > /sys/devices/system/cpu/%k/online'"

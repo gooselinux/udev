@@ -1,0 +1,26 @@
+From 3a19299202b5d34b89d5910fde25e8a4cfa2b31a Mon Sep 17 00:00:00 2001
+From: David Zeuthen <davidz@redhat.com>
+Date: Tue, 2 Mar 2010 17:07:14 -0500
+Subject: [PATCH 2/3] Use UTIL_LINE_SIZE, not UTIL_PATH_SIZE to truncate properties
+
+Signed-off-by: David Zeuthen <davidz@redhat.com>
+---
+ libudev/libudev-device.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/libudev/libudev-device.c b/libudev/libudev-device.c
+index 4f42aa2..b841745 100644
+--- a/libudev/libudev-device.c
++++ b/libudev/libudev-device.c
+@@ -1089,7 +1089,7 @@ struct udev_list_entry *udev_device_add_property(struct udev_device *udev_device
+ 
+ struct udev_list_entry *udev_device_add_property_from_string(struct udev_device *udev_device, const char *property)
+ {
+-	char name[UTIL_PATH_SIZE];
++	char name[UTIL_LINE_SIZE];
+ 	char *val;
+ 
+ 	util_strscpy(name, sizeof(name), property);
+-- 
+1.7.0
+

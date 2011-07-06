@@ -1,0 +1,18 @@
+commit 0c7377880974e6eadac7a3ae9e35d339546dde0d
+Author: Harald Hoyer <harald@redhat.com>
+Date:   Thu Jul 8 11:36:01 2010 +0200
+
+    60-persistent-storage-tape.rules: make own by-path symlink for nst tapes
+
+diff --git a/rules/rules.d/60-persistent-storage-tape.rules b/rules/rules.d/60-persistent-storage-tape.rules
+index d9df35a..6ccd6e5 100644
+--- a/rules/rules.d/60-persistent-storage-tape.rules
++++ b/rules/rules.d/60-persistent-storage-tape.rules
+@@ -19,6 +19,6 @@ KERNEL=="nst*[0-9]", ENV{ID_SERIAL}=="?*", SYMLINK+="tape/by-id/$env{ID_BUS}-$en
+ # by-path (parent device path)
+ KERNEL=="st*[0-9]|nst*[0-9]", IMPORT{program}="path_id %p"
+ KERNEL=="st*[0-9]", ENV{ID_PATH}=="?*", SYMLINK+="tape/by-path/$env{ID_PATH}"
+-KERNEL=="nst*[0-9]", ENV{ID_PATH}=="?*", SYMLINK+="tape/by-path/$env{ID_PATH}"
++KERNEL=="nst*[0-9]", ENV{ID_PATH}=="?*", SYMLINK+="tape/by-path/$env{ID_PATH}-nst"
+ 
+ LABEL="persistent_storage_tape_end"

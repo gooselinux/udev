@@ -1,0 +1,100 @@
+Return-Path: linux-hotplug-owner@vger.kernel.org
+Received: from zmta03.collab.prod.int.phx2.redhat.com (LHLO
+ zmta03.collab.prod.int.phx2.redhat.com) (10.5.5.33) by
+ mail01.corp.redhat.com with LMTP; Fri, 25 Jun 2010 10:00:32 -0400 (EDT)
+Received: from localhost (localhost.localdomain [127.0.0.1])
+	by zmta03.collab.prod.int.phx2.redhat.com (Postfix) with ESMTP id B96F54EFFA;
+	Fri, 25 Jun 2010 10:00:32 -0400 (EDT)
+Received: from zmta03.collab.prod.int.phx2.redhat.com ([127.0.0.1])
+	by localhost (zmta03.collab.prod.int.phx2.redhat.com [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id Ppgrmu5zXtvv; Fri, 25 Jun 2010 10:00:32 -0400 (EDT)
+Received: from int-mx02.intmail.prod.int.phx2.redhat.com (int-mx02.intmail.prod.int.phx2.redhat.com [10.5.11.12])
+	by zmta03.collab.prod.int.phx2.redhat.com (Postfix) with ESMTP id A523E4EFF9;
+	Fri, 25 Jun 2010 10:00:32 -0400 (EDT)
+Received: from mx1.redhat.com (ext-mx07.extmail.prod.ext.phx2.redhat.com [10.5.110.11])
+	by int-mx02.intmail.prod.int.phx2.redhat.com (8.13.8/8.13.8) with ESMTP id o5PE0WuC006739;
+	Fri, 25 Jun 2010 10:00:32 -0400
+Received: from vger.kernel.org (vger.kernel.org [209.132.180.67])
+	by mx1.redhat.com (8.13.8/8.13.8) with ESMTP id o5PDxs3Y017236;
+	Fri, 25 Jun 2010 10:00:22 -0400
+Received: (majordomo@vger.kernel.org) by vger.kernel.org via listexpand
+	id S1756260Ab0FYOAS (ORCPT <rfc822;notting@redhat.com> + 5 others);
+	Fri, 25 Jun 2010 10:00:18 -0400
+Received: from e35.co.us.ibm.com ([32.97.110.153]:35461 "EHLO
+	e35.co.us.ibm.com" rhost-flags-OK-OK-OK-OK) by vger.kernel.org
+	with ESMTP id S1756233Ab0FYN7p (ORCPT
+	<rfc822;linux-hotplug@vger.kernel.org>);
+	Fri, 25 Jun 2010 09:59:45 -0400
+Received: from d03relay02.boulder.ibm.com (d03relay02.boulder.ibm.com [9.17.195.227])
+	by e35.co.us.ibm.com (8.14.4/8.13.1) with ESMTP id o5PDqLdt029194
+	for <linux-hotplug@vger.kernel.org>; Fri, 25 Jun 2010 07:52:21 -0600
+Received: from d03av03.boulder.ibm.com (d03av03.boulder.ibm.com [9.17.195.169])
+	by d03relay02.boulder.ibm.com (8.13.8/8.13.8/NCO v9.1) with ESMTP id o5PDxhnC221010
+	for <linux-hotplug@vger.kernel.org>; Fri, 25 Jun 2010 07:59:43 -0600
+Received: from d03av03.boulder.ibm.com (loopback [127.0.0.1])
+	by d03av03.boulder.ibm.com (8.14.4/8.13.1/NCO v10.0 AVout) with ESMTP id o5PDxUW6014334
+	for <linux-hotplug@vger.kernel.org>; Fri, 25 Jun 2010 07:59:31 -0600
+Received: from localhost.localdomain (sig-9-76-74-41.mts.ibm.com [9.76.74.41])
+	by d03av03.boulder.ibm.com (8.14.4/8.13.1/NCO v10.0 AVin) with ESMTP id o5PDxQvM014192;
+	Fri, 25 Jun 2010 07:59:29 -0600
+From: Ryan Harper <ryanh@us.ibm.com>
+To: linux-hotplug@vger.kernel.org
+Cc: john cooper <john.cooper@redhat.com>,
+        Rusty Russell <rusty@rustcorp.com.au>, <qemu-devel@nongnu.org>,
+        Ryan Harper <ryanh@us.ibm.com>
+Subject: [PATCH 1/2] Add virtio-blk support to path_id
+Date: 	Fri, 25 Jun 2010 08:59:22 -0500
+Message-Id: <1277474363-6534-2-git-send-email-ryanh@us.ibm.com>
+In-Reply-To: <1277474363-6534-1-git-send-email-ryanh@us.ibm.com>
+References: <1277474363-6534-1-git-send-email-ryanh@us.ibm.com>
+Sender: linux-hotplug-owner@vger.kernel.org
+Precedence: bulk
+List-ID: <linux-hotplug.vger.kernel.org>
+X-Mailing-List: 	linux-hotplug@vger.kernel.org
+X-RedHat-Spam-Score: -2.31  (RCVD_IN_DNSWL_MED,T_RP_MATCHES_RCVD)
+X-Scanned-By: MIMEDefang 2.67 on 10.5.11.12
+X-Scanned-By: MIMEDefang 2.67 on 10.5.110.11
+
+This patch adds a case handling path_id invoked on a virtio-blk device.
+Currently path_id walks the parent path to virtio-pci but doesn't know
+that it's the end of the path and exits without building the path (providing no
+output resulting in no disk/by-path symlinks to virtio-blk devices).
+This patch handles the virtio-pci path and updates the path accordingly.
+
+/lib/udev/path_id --debug /block/vda
+udev_device_new_from_syspath: device 0x2300120 has devpath '/devices/virtio-pci/virtio1/block/vda'
+udev_device_new_from_syspath: device 0x2300380 has devpath '/devices/virtio-pci/virtio1'
+udev_device_new_from_syspath: device 0x2300670 has devpath '/devices/virtio-pci'
+ID_PATH=virtio-pci-virtio1
+
+And with the current persistent-storage rules generates:
+
+% ls -al /dev/disk/by-path | grep vda
+lrwxrwxrwx. 1 root root   9 Jun  1 22:09 virtio-pci-virtio1 -> ../../vda
+
+Signed-off-by: Ryan Harper <ryanh@us.ibm.com>
+---
+ extras/path_id/path_id.c |    3 +++
+ 1 files changed, 3 insertions(+), 0 deletions(-)
+
+diff --git a/extras/path_id/path_id.c b/extras/path_id/path_id.c
+index dcee378..c19bfd0 100644
+--- a/extras/path_id/path_id.c
++++ b/extras/path_id/path_id.c
+@@ -448,6 +448,9 @@ int main(int argc, char **argv)
+ 		} else if (strcmp(subsys, "xen") == 0) {
+ 			path_prepend(&path, "xen-%s", udev_device_get_sysname(parent));
+ 			parent = skip_subsystem(parent, "xen");
++		} else if (strcmp(subsys, "virtio") == 0) {
++			path_prepend(&path, "virtio-pci-%s", udev_device_get_sysname(parent));
++			parent = skip_subsystem(parent, "virtio");
+ 		}
+ 
+ 		parent = udev_device_get_parent(parent);
+-- 
+1.6.3.3
+
+--
+To unsubscribe from this list: send the line "unsubscribe linux-hotplug" in
+the body of a message to majordomo@vger.kernel.org
+More majordomo info at  http://vger.kernel.org/majordomo-info.html

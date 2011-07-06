@@ -1,0 +1,38 @@
+From 7505831b7ee7b04d84424d2ed306a76abd32871c Mon Sep 17 00:00:00 2001
+From: David Zeuthen <davidz@redhat.com>
+Date: Tue, 10 Nov 2009 12:32:38 -0500
+Subject: [PATCH 01/10] cdrom_id: Still check profiles even if there is no media
+
+Even when there is no medium in the drive, we should still check the
+profiles supported by the drive. Otherwise we fail to detect things
+like Blu-ray drives. See
+
+ https://bugzilla.gnome.org/show_bug.cgi?id=600273
+
+for more information.
+
+Signed-off-by: David Zeuthen <davidz@redhat.com>
+---
+ extras/cdrom_id/cdrom_id.c |    6 +++---
+ 1 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/extras/cdrom_id/cdrom_id.c b/extras/cdrom_id/cdrom_id.c
+index 6ea763b..2380b15 100644
+--- a/extras/cdrom_id/cdrom_id.c
++++ b/extras/cdrom_id/cdrom_id.c
+@@ -583,9 +583,9 @@ int main(int argc, char *argv[])
+ 		goto exit;
+ 	}
+ 
+-	/* check for media */
+-	if (cd_media_compat(udev, fd) < 0)
+-		goto print;
++	/* check for media - don't bail if there's no media as we still need to
++         * to read profiles */
++	cd_media_compat(udev, fd);
+ 
+ 	/* check if drive talks MMC */
+ 	if (cd_inquiry(udev, fd) < 0)
+-- 
+1.7.0.1
+

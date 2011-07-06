@@ -1,0 +1,35 @@
+commit 25728ea1ad0c128ae504801abf1f6bfaab608d93
+Author: Amit Shah <amit.shah@redhat.com>
+Date:   Thu Jan 21 18:45:04 2010 +0530
+
+    rules: Add symlink rule for virtio ports
+    
+    virtio ports spawned by the virtio_console.c driver can have 'names'
+    assigned to them by hosts. The ports are distinguishable using these
+    names. Make a rule to create a symlink to the chardev associated for a
+    port with a name.
+    
+    The symlink created is:
+        /dev/virtio-ports/org.libvirt.console0 -> /dev/vport0p0
+    
+    if the first port for the first device was given a name of
+    'org.libvirt.console0'.
+    
+    Signed-off-by: Amit Shah <amit.shah@redhat.com>
+
+Changed by Harald Hoyer <harald@redhat.com>
+
+diff --git a/rules/rules.d/50-udev-default.rules b/rules/rules.d/50-udev-default.rules
+index a79073b..2b607a3 100644
+--- a/rules/rules.d/50-udev-default.rules
++++ b/rules/rules.d/50-udev-default.rules
+@@ -17,6 +17,9 @@ KERNEL=="ppp",			MODE="0600"
+ KERNEL=="mwave",		GROUP="dialout"
+ KERNEL=="hvc*|hvsi*",		GROUP="dialout"
+ 
++# virtio serial / console ports
++KERNEL=="vport*", ATTR{name}=="?*", SYMLINK+="virtio-ports/$attr{name}"
++
+ # mem
+ KERNEL=="null|zero|full|random|urandom", MODE="0666"
+ KERNEL=="mem|kmem|port|nvram",	GROUP="kmem", MODE="0640"

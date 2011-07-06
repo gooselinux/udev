@@ -1,0 +1,37 @@
+From e32d5237ea045045c621edba7341631abd602d74 Mon Sep 17 00:00:00 2001
+From: David Zeuthen <davidz@redhat.com>
+Date: Tue, 2 Mar 2010 17:10:02 -0500
+Subject: [PATCH 3/3] Increase UTIL_LINE_SIZE from 2048 to 16384
+
+Recent udisks versions, for LVM2 integration, ships with probers that
+produce very long lines such as
+
+UDISKS_LVM2_PV_VG_PV_LIST=
+  uuid=98lyZl-Ya7U-p26Z-Ia7b-xf8u-xZqP-jc4njb;size=2000397795328;allocated_size=2000397795328
+  uuid=iFs0cM-sxCF-ceQK-hZl1-kbwo-ZTjq-gSewQR;size=2000397795328;allocated_size=2000397795328
+  [...]
+
+e.g. roughly 100 bytes per LVM2 physical volume for each LVM2
+PV encountered.
+
+Signed-off-by: David Zeuthen <davidz@redhat.com>
+---
+ libudev/libudev-private.h |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/libudev/libudev-private.h b/libudev/libudev-private.h
+index 0d28b80..e0c51dc 100644
+--- a/libudev/libudev-private.h
++++ b/libudev/libudev-private.h
+@@ -187,7 +187,7 @@ int udev_queue_export_device_failed(struct udev_queue_export *udev_queue_export,
+ /* libudev-util.c */
+ #define UTIL_PATH_SIZE				1024
+ #define UTIL_NAME_SIZE				512
+-#define UTIL_LINE_SIZE				2048
++#define UTIL_LINE_SIZE				16384
+ #define UDEV_ALLOWED_CHARS_INPUT		"/ $%?,"
+ ssize_t util_get_sys_subsystem(struct udev *udev, const char *syspath, char *subsystem, size_t size);
+ ssize_t util_get_sys_driver(struct udev *udev, const char *syspath, char *driver, size_t size);
+-- 
+1.7.0
+

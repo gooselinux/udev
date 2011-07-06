@@ -1,0 +1,49 @@
+diff -up udev-147/extras/path_id/path_id.c.sas udev-147/extras/path_id/path_id.c
+--- udev-147/extras/path_id/path_id.c.sas	2010-06-11 12:06:41.000000000 +0200
++++ udev-147/extras/path_id/path_id.c	2010-06-11 12:08:50.000000000 +0200
+@@ -126,6 +126,7 @@ static struct udev_device *handle_scsi_s
+ 	struct udev_device *sasdev;
+ 	char syspath[UTIL_PATH_SIZE], *base;
+ 	const char *name, *enc, *bay;
++        char *port, *slash;
+ 
+ 	end_dev = parent;
+ 	while (1) {
+@@ -139,6 +140,17 @@ static struct udev_device *handle_scsi_s
+ 	base = strdup(udev_device_get_syspath(end_dev));
+ 	if (!base)
+ 		return NULL;
++
++ 	port = strstr(base, "port-");
++ 	if (!port)
++ 		return NULL;
++ 	slash = strchr(port, '/');
++ 	if (!slash)
++ 		return NULL;
++ 	port = strndup(port, slash - port);
++ 	if (!port)
++ 		return NULL;
++
+ 	snprintf(syspath, sizeof(syspath), "%s/sas_device/%s", base, name);
+ 	free(base);
+ 
+@@ -148,17 +160,14 @@ static struct udev_device *handle_scsi_s
+ 		return NULL;
+ 	}
+ 	enc = udev_device_get_sysattr_value(sasdev, "enclosure_identifier");
+-	if (enc == NULL) {
+-		parent = NULL;
+-		goto out;
+-	}
+ 	bay = udev_device_get_sysattr_value(sasdev, "bay_identifier");
+ 	if (bay == NULL) {
+ 		parent = NULL;
+ 		goto out;
+ 	}
+ 
+-	path_prepend(path, "sas-%s-%s", enc, bay);
++	path_prepend(path, "sas-%s-%s-%s", port, enc ? enc : "unknown", bay);
++	free(port);
+ out:
+ 	udev_device_unref(sasdev);
+ 	return parent;

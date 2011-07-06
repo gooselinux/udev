@@ -1,0 +1,22 @@
+From 63480d01aa61ac833517a48aea83dd8b12ccc828 Mon Sep 17 00:00:00 2001
+From: Kay Sievers <kay.sievers@vrfy.org>
+Date: Tue, 15 Dec 2009 16:15:33 +0100
+Subject: [PATCH 02/10] cdrom_id: remove deprecated device matches
+
+---
+ extras/cdrom_id/60-cdrom_id.rules |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/extras/cdrom_id/60-cdrom_id.rules b/extras/cdrom_id/60-cdrom_id.rules
+index a3e8e3c..132a680 100644
+--- a/extras/cdrom_id/60-cdrom_id.rules
++++ b/extras/cdrom_id/60-cdrom_id.rules
+@@ -2,4 +2,4 @@
+ 
+ # import optical drive properties
+ ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", \
+-  KERNEL=="sr[0-9]*|hd[a-z]|pcd[0-9]|xvd*", IMPORT{program}="cdrom_id --export $tempnode"
++  KERNEL=="sr[0-9]*|xvd*", IMPORT{program}="cdrom_id --export $tempnode"
+-- 
+1.7.0.1
+

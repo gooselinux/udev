@@ -1,0 +1,12 @@
+diff -up udev-147/extras/rule_generator/75-persistent-net-generator.rules.layer3 udev-147/extras/rule_generator/75-persistent-net-generator.rules
+--- udev-147/extras/rule_generator/75-persistent-net-generator.rules.layer3	2010-02-09 16:07:18.000000000 +0100
++++ udev-147/extras/rule_generator/75-persistent-net-generator.rules	2010-02-09 17:24:41.000000000 +0100
+@@ -76,7 +76,7 @@ SUBSYSTEMS=="ieee1394", ENV{COMMENT}="Fi
+ DRIVERS=="ibmveth", ENV{MATCHADDR}="$attr{address}", ENV{COMMENT}="ibmveth ($id)"
+ 
+ # S/390 uses id matches only, do not use MAC address match
+-SUBSYSTEMS=="ccwgroup", ENV{COMMENT}="S/390 $driver device at $id", ENV{MATCHID}="$id", ENV{MATCHDRV}="$driver", ENV{MATCHADDR}=""
++SUBSYSTEMS=="ccwgroup", ENV{COMMENT}="S/390 $driver device at $id", ENV{MATCHID}="$id", ENV{MATCHDRV}="$driver", ENV{MATCHADDR}="", ENV{MATCHDEVID}=""
+ 
+ # see if we got enough data to create a rule
+ ENV{MATCHADDR}=="", ENV{MATCHID}=="", ENV{INTERFACE_NAME}=="", GOTO="persistent_net_generator_end"

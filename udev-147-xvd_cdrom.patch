@@ -1,0 +1,12 @@
+diff -up udev-147/extras/cdrom_id/60-cdrom_id.rules.xvd_cdrom udev-147/extras/cdrom_id/60-cdrom_id.rules
+--- udev-147/extras/cdrom_id/60-cdrom_id.rules.xvd_cdrom	2010-04-22 08:51:50.000000000 +0200
++++ udev-147/extras/cdrom_id/60-cdrom_id.rules	2010-04-22 08:52:05.000000000 +0200
+@@ -5,7 +5,7 @@ SUBSYSTEM!="block", GOTO="cdrom_end"
+ KERNEL!="sr[0-9]*|xvd*", GOTO="cdrom_end"
+ ENV{DEVTYPE}!="disk", GOTO="cdrom_end"
+ 
+-ENV{ID_CDROM}="1"
++KERNEL=="sr[0-9]*", ENV{ID_CDROM}="1"
+ IMPORT{program}="cdrom_id --export $tempnode"
+ 
+ LABEL="cdrom_end"

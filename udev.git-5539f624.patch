@@ -1,0 +1,230 @@
+commit 5539f624e18e948e4e3a1f0d9f5d25de9c8fd8b8
+Author: Kay Sievers <kay.sievers@vrfy.org>
+Date:   Mon Apr 12 15:58:05 2010 +0200
+
+    allow IMPORT{db}="KEY"
+
+diff --git a/udev/udev-rules.c b/udev/udev-rules.c
+index 60daad5..c4a2724 100644
+--- a/udev/udev-rules.c
++++ b/udev/udev-rules.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2003-2009 Kay Sievers <kay.sievers@vrfy.org>
++ * Copyright (C) 2003-2010 Kay Sievers <kay.sievers@vrfy.org>
+  * Copyright (C) 2008 Alan Jenkins <alan-jenkins@tuffmail.co.uk>
+  *
+  * This program is free software: you can redistribute it and/or modify
+@@ -141,6 +141,7 @@ enum token_type {
+ 	TK_M_PROGRAM,			/* val */
+ 	TK_M_IMPORT_FILE,		/* val */
+ 	TK_M_IMPORT_PROG,		/* val */
++	TK_M_IMPORT_DB,			/* val */
+ 	TK_M_IMPORT_PARENT,		/* val */
+ 	TK_M_RESULT,			/* val */
+ 	TK_M_MAX,
+@@ -271,6 +272,7 @@ static const char *token_str(enum token_type type)
+ 		[TK_M_PROGRAM] =		"M PROGRAM",
+ 		[TK_M_IMPORT_FILE] =		"M IMPORT_FILE",
+ 		[TK_M_IMPORT_PROG] =		"M IMPORT_PROG",
++		[TK_M_IMPORT_DB] =		"M IMPORT_DB",
+ 		[TK_M_IMPORT_PARENT] =		"M IMPORT_PARENT",
+ 		[TK_M_RESULT] =			"M RESULT",
+ 		[TK_M_MAX] =			"M MAX",
+@@ -337,6 +339,7 @@ static void dump_token(struct udev_rules *rules, struct token *token)
+ 	case TK_M_PROGRAM:
+ 	case TK_M_IMPORT_FILE:
+ 	case TK_M_IMPORT_PROG:
++	case TK_M_IMPORT_DB:
+ 	case TK_M_IMPORT_PARENT:
+ 	case TK_M_RESULT:
+ 	case TK_A_NAME:
+@@ -1001,6 +1004,7 @@ static int rule_add_key(struct rule_tmp *rule_tmp, enum token_type type,
+ 	case TK_M_PROGRAM:
+ 	case TK_M_IMPORT_FILE:
+ 	case TK_M_IMPORT_PROG:
++	case TK_M_IMPORT_DB:
+ 	case TK_M_IMPORT_PARENT:
+ 	case TK_M_RESULT:
+ 	case TK_A_OWNER:
+@@ -1379,6 +1383,9 @@ static int add_rule(struct udev_rules *rules, char *line,
+ 			} else if (attr != NULL && strstr(attr, "file")) {
+ 				dbg(rules->udev, "IMPORT will be included as file\n");
+ 				rule_add_key(&rule_tmp, TK_M_IMPORT_FILE, op, value, NULL);
++			} else if (attr != NULL && strstr(attr, "db")) {
++				dbg(rules->udev, "IMPORT will include db values\n");
++				rule_add_key(&rule_tmp, TK_M_IMPORT_DB, op, value, NULL);
+ 			} else if (attr != NULL && strstr(attr, "parent")) {
+ 				dbg(rules->udev, "IMPORT will include the parent values\n");
+ 				rule_add_key(&rule_tmp, TK_M_IMPORT_PARENT, op, value, NULL);
+@@ -2288,6 +2295,23 @@ int udev_rules_apply_to_event(struct udev_rules *rules, struct udev_event *event
+ 						goto nomatch;
+ 				break;
+ 			}
++		case TK_M_IMPORT_DB:
++			{
++				const char *key = &rules->buf[cur->key.value_off];
++				const char *value;
++
++				value = udev_device_get_property_value(event->dev_db, key);
++				if (value != NULL) {
++					struct udev_list_entry *entry;
++
++					entry = udev_device_add_property(event->dev, key, value);
++					udev_list_entry_set_flag(entry, 1);
++				} else {
++					if (cur->key.op != OP_NOMATCH)
++						goto nomatch;
++				}
++				break;
++			}
+ 		case TK_M_IMPORT_PARENT:
+ 			{
+ 				char import[UTIL_PATH_SIZE];
+diff --git a/udev/udev.xml b/udev/udev.xml
+index b6c5933..175cdbe 100644
+--- a/udev/udev.xml
++++ b/udev/udev.xml
+@@ -399,6 +399,14 @@
+                     </listitem>
+                   </varlistentry>
+                   <varlistentry>
++                    <term><option>db</option></term>
++                    <listitem>
++                      <para>Import a single property specified as the assigned value from the
++                      current device database. This works only if the database is already populated
++                      by an earlier event.</para>
++                    </listitem>
++                  </varlistentry>
++                  <varlistentry>
+                     <term><option>parent</option></term>
+                     <listitem>
+                       <para>Import the stored keys from the parent device by reading
+diff --git a/udev/udev-node.c b/udev/udev-node.c
+index 24f2ccf..3b4eb5f 100644
+--- a/udev/udev-node.c
++++ b/udev/udev-node.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2003-2009 Kay Sievers <kay.sievers@vrfy.org>
++ * Copyright (C) 2003-2010 Kay Sievers <kay.sievers@vrfy.org>
+  *
+  * This program is free software: you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License as published by
+@@ -25,6 +25,7 @@
+ #include <errno.h>
+ #include <grp.h>
+ #include <dirent.h>
++#include <sys/time.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
+ 
+@@ -175,6 +170,7 @@ static int node_symlink(struct udev *udev, const char *node, const char *slink)
+ 					info(udev, "preserve already existing symlink '%s' to '%s'\n",
+ 					     slink, target);
+ 					udev_selinux_lsetfilecon(udev, slink, S_IFLNK);
++					utimensat(AT_FDCWD, slink, NULL, AT_SYMLINK_NOFOLLOW);
+ 					goto exit;
+ 				}
+ 			}
+@@ -437,10 +435,21 @@ int udev_node_remove(struct udev_device *dev)
+ 		return -1;
+ 	}
+ 
+-	info(udev, "removing device node '%s'\n", devnode);
+-	err = util_unlink_secure(udev, devnode);
+-	if (err)
+-		return err;
++	if (udev_device_get_ignore_remove(dev)) {
++		info(udev, "ignore_remove for '%s'\n", udev_device_get_devnode(dev));
++	} else {
++		struct udev_device *dev_check;
++
++		dev_check = udev_device_new_from_syspath(udev, udev_device_get_syspath(dev));
++		if (dev_check != NULL && stats.st_rdev == udev_device_get_devnum(dev_check)) {
++			/* do not remove device node if the same sys-device is re-created in the meantime */
++			info(udev, "keeping device node of existing device'%s'\n", devnode);
++		} else {
++			info(udev, "removing device node '%s'\n", devnode);
++			err = util_unlink_secure(udev, devnode);
++		}
++		udev_device_unref(dev_check);
++	}
+ 
+ 	num = udev_device_get_num_fake_partitions(dev);
+ 	if (num > 0) {
+diff --git a/udev/udev.h b/udev/udev.h
+index 8f0a301..2b9bbec 100644
+--- a/udev/udev.h
++++ b/udev/udev.h
+@@ -1,6 +1,6 @@
+ /*
+  * Copyright (C) 2003 Greg Kroah-Hartman <greg@kroah.com>
+- * Copyright (C) 2003-2008 Kay Sievers <kay.sievers@vrfy.org>
++ * Copyright (C) 2003-2010 Kay Sievers <kay.sievers@vrfy.org>
+  *
+  * This program is free software: you can redistribute it and/or modify
+  * it under the terms of the GNU General Public License as published by
+@@ -35,6 +35,7 @@ struct udev_event {
+ 	struct udev *udev;
+ 	struct udev_device *dev;
+ 	struct udev_device *dev_parent;
++	struct udev_device *dev_db;
+ 	char *name;
+ 	char *tmp_node;
+ 	char *program_result;
+--- udev-147/udev/udev-event.c	2010-06-11 11:32:37.000000000 +0200
++++ udev-147/udev/udev-event.c	2010-06-11 11:48:48.000000000 +0200
+@@ -545,19 +545,18 @@
+ 	if (major(udev_device_get_devnum(dev)) != 0 &&
+ 	    (strcmp(udev_device_get_action(dev), "add") == 0 || strcmp(udev_device_get_action(dev), "change") == 0)) {
+ 		char filename[UTIL_PATH_SIZE];
+-		struct udev_device *dev_old;
+ 		int delete_kdevnode = 0;
+ 
+ 		dbg(event->udev, "device node add '%s'\n", udev_device_get_devpath(dev));
+ 
+ 		/* read old database entry */
+-		dev_old = udev_device_new_from_syspath(event->udev, udev_device_get_syspath(dev));
+-		if (dev_old != NULL) {
+-			udev_device_read_db(dev_old);
+-			udev_device_set_info_loaded(dev_old);
++		event->dev_db = udev_device_new_from_syspath(event->udev, udev_device_get_syspath(dev));
++		if (event->dev_db != NULL) {
++			udev_device_read_db(event->dev_db);
++			udev_device_set_info_loaded(event->dev_db);
+ 
+ 			/* disable watch during event processing */
+-			udev_watch_end(event->udev, dev_old);
++			udev_watch_end(event->udev, event->dev_db);
+ 		}
+ 
+ 		udev_rules_apply_to_event(rules, event);
+@@ -611,10 +610,13 @@
+ 		udev_device_update_db(dev);
+ 
+ 		/* remove/update possible left-over symlinks from old database entry */
+-		if (dev_old != NULL)
+-			udev_node_update_old_links(dev, dev_old);
+-
+-		/* create new node and symlinks */
++		if (event->dev_db != NULL)
++		  udev_node_update_old_links(dev, event->dev_db);
++		
++		/* change default 0600 to 0660 if a group is assigned */
++		if (event->mode == 0600 && event->gid > 0)
++		  event->mode = 0660;
++		
+ 		err = udev_node_add(dev, event->mode, event->uid, event->gid);
+ exit_add:
+ 		if (delete_kdevnode && udev_device_get_knodename(dev) != NULL) {
+@@ -628,7 +630,8 @@
+ 				info(event->udev, "removed kernel created node '%s'\n", filename);
+ 			}
+ 		}
+-		udev_device_unref(dev_old);
++		udev_device_unref(event->dev_db);
++		event->dev_db = NULL;
+ 		goto exit;
+ 	}
+ 

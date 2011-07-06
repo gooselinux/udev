@@ -1,0 +1,12 @@
+diff -up udev-147/rules/rules.d/60-persistent-storage.rules.virtual udev-147/rules/rules.d/60-persistent-storage.rules
+--- udev-147/rules/rules.d/60-persistent-storage.rules.virtual	2010-06-08 14:29:04.000000000 +0200
++++ udev-147/rules/rules.d/60-persistent-storage.rules	2010-06-08 14:29:29.000000000 +0200
+@@ -53,7 +53,7 @@ KERNEL=="mspblk[0-9]", SUBSYSTEMS=="mems
+ KERNEL=="mspblk[0-9]p[0-9]", ENV{ID_NAME}=="?*", ENV{ID_SERIAL}=="?*", SYMLINK+="disk/by-id/memstick-$env{ID_NAME}_$env{ID_SERIAL}-part%n"
+ 
+ # by-path (parent device path)
+-ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="", DEVPATH!="*/virtual/*", IMPORT{program}="path_id %p"
++ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="", IMPORT{program}="path_id %p"
+ ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH}"
+ ENV{DEVTYPE}=="partition", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PATH}-part%n"
+ 

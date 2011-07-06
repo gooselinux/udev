@@ -1,0 +1,27 @@
+commit 484e1b2d11b9b89418589d885a625e647881933b
+Author: Kay Sievers <kay.sievers@vrfy.org>
+Date:   Tue May 25 09:54:14 2010 +0200
+
+    rules: optical drives - use ID_CDROM_MEDIA_TRACK_COUNT_DATA
+    
+    We should not access non-data optical media, ans skip things
+    like blkid. It will cause errors for some drives.
+    
+      https://bugzilla.kernel.org/show_bug.cgi?id=15757
+
+diff --git a/rules/rules.d/60-persistent-storage.rules b/rules/rules.d/60-persistent-storage.rules
+index d9f8003..1f46041 100644
+--- a/rules/rules.d/60-persistent-storage.rules
++++ b/rules/rules.d/60-persistent-storage.rules
+@@ -52,9 +52,9 @@ ENV{DEVTYPE}=="partition", ENV{ID_PATH}=="?*", SYMLINK+="disk/by-path/$env{ID_PA
+ ENV{DEVTYPE}=="disk", KERNEL!="sd*|sr*", ATTR{removable}=="1", GOTO="persistent_storage_end"
+ 
+ # probe filesystem metadata of optical drives which have a media inserted
+-KERNEL=="sr*", ENV{ID_CDROM_MEDIA}=="?*", ENV{ID_CDROM_MEDIA_SESSION_LAST_OFFSET}=="?*", IMPORT{program}="/sbin/blkid -o udev -p -u noraid -O $env{ID_CDROM_MEDIA_SESSION_LAST_OFFSET} $tempnode"
++KERNEL=="sr*", ENV{ID_CDROM_MEDIA_TRACK_COUNT_DATA}=="?*", ENV{ID_CDROM_MEDIA_SESSION_LAST_OFFSET}=="?*", IMPORT{program}="/sbin/blkid -o udev -p -u noraid -O $env{ID_CDROM_MEDIA_SESSION_LAST_OFFSET} $tempnode"
+ # single-session CDs do not have ID_CDROM_MEDIA_SESSION_LAST_OFFSET
+-KERNEL=="sr*", ENV{ID_CDROM_MEDIA}=="?*", ENV{ID_CDROM_MEDIA_SESSION_LAST_OFFSET}=="", IMPORT{program}="/sbin/blkid -o udev -p -u noraid $tempnode"
++KERNEL=="sr*", ENV{ID_CDROM_MEDIA_TRACK_COUNT_DATA}=="?*", ENV{ID_CDROM_MEDIA_SESSION_LAST_OFFSET}=="", IMPORT{program}="/sbin/blkid -o udev -p -u noraid $tempnode"
+ 
+ # probe filesystem metadata of disks
+ KERNEL!="sr*", IMPORT{program}="/sbin/blkid -o udev -p $tempnode"

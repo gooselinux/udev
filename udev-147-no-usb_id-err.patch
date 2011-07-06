@@ -1,0 +1,12 @@
+diff -up udev-147/extras/usb_id/usb_id.c.nowarn udev-147/extras/usb_id/usb_id.c
+--- udev-147/extras/usb_id/usb_id.c.nowarn	2010-06-29 12:20:28.000000000 +0200
++++ udev-147/extras/usb_id/usb_id.c	2010-06-29 12:21:14.000000000 +0200
+@@ -513,7 +513,7 @@ int main(int argc, char **argv)
+ 	util_strscpyl(syspath, sizeof(syspath), udev_get_sys_path(udev), devpath, NULL);
+ 	dev = udev_device_new_from_syspath(udev, syspath);
+ 	if (dev == NULL) {
+-		err(udev, "unable to access '%s'\n", devpath);
++		info(udev, "unable to access '%s'\n", devpath);
+ 		return 1;
+ 	}
+ 

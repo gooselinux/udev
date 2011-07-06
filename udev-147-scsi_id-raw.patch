@@ -1,0 +1,11 @@
+diff -ur udev-147/extras/scsi_id/scsi_id.c udev-147.new/extras/scsi_id/scsi_id.c
+--- udev-147/extras/scsi_id/scsi_id.c	2010-08-24 13:07:06.000000000 +0200
++++ udev-147.new/extras/scsi_id/scsi_id.c	2010-08-24 13:11:09.000000000 +0200
+@@ -558,6 +558,7 @@
+ 		printf("ID_REVISION=%s\n", revision_str);
+ 		printf("ID_TYPE=%s\n", type_str);
+ 		if (dev_scsi.serial[0] != '\0') {
++			printf("ID_SERIAL_RAW=\"%s\"\n", dev_scsi.serial);
+ 			udev_util_replace_whitespace(dev_scsi.serial, serial_str, sizeof(serial_str));
+ 			udev_util_replace_chars(serial_str, NULL);
+ 			printf("ID_SERIAL=%s\n", serial_str);

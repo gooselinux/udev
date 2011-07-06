@@ -1,0 +1,23 @@
+diff -up udev-147/extras/path_id/path_id.c.sas udev-147/extras/path_id/path_id.c
+--- udev-147/extras/path_id/path_id.c.sas	2010-07-12 11:37:09.000000000 +0200
++++ udev-147/extras/path_id/path_id.c	2010-07-12 11:38:24.000000000 +0200
+@@ -174,13 +174,18 @@ static struct udev_device *handle_scsi_s
+ 		return NULL;
+ 	}
+ 	enc = udev_device_get_sysattr_value(sasdev, "enclosure_identifier");
++        if (enc == NULL) {
++                parent = NULL;
++                goto out;
++        }
++
+ 	bay = udev_device_get_sysattr_value(sasdev, "bay_identifier");
+ 	if (bay == NULL) {
+ 		parent = NULL;
+ 		goto out;
+ 	}
+ 
+-	path_prepend(path, "sas-%s-%s-%s", strrchr(phy_path, '/') + 1, enc ? enc : "unknown", bay);
++	path_prepend(path, "sas-%s-%s-%s", strrchr(phy_path, '/') + 1, enc, bay);
+ out:
+ 	udev_device_unref(sasdev);
+ 	return parent;
