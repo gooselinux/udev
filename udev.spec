@@ -420,6 +420,9 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0644,root,root) %{_libdir}/pkgconfig/gudev-1.0*
 
 %changelog
+* Sun Jul 17 2011 Mike Adams <shalkie@gooseproject.org> 147-2.29
+- Initial build for GoOSe Linux 6
+
 * Tue Aug 31 2010 Harald Hoyer <harald@redhat.com> 147-2.29
 - set the selinux context for "add" events, regression
   the fix for rhbz#575128 caused a lot of selinux errors like
